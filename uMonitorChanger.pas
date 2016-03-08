@@ -172,7 +172,7 @@ begin
        (AFormInfo.Rect.Left <= FScreen.Monitors[i].Left + FScreen.Monitors[i].Width) then
       Exit(i);
   end;
-  Result := -1;
+  Result := 0;
 end;
 
 procedure TMonitorChanger.PlaceForms;
@@ -182,13 +182,14 @@ var
   vMovedForms: TList<TFormInfo>;
   vWidth: Integer;
   vS: string;
+  vNext: Integer;
 begin
    vWidth := ScreenWidth;
    vStartForms := FormsFromProcess;
    for vItem in vStartForms do
    begin
-
-     SetWindowPos(vItem.Handle, 0, Screen.Monitors[0].Width{ - vItem.Rect.Width div 2}, vItem.Rect.Top, vItem.Rect.Width, vItem.Rect.Height,
+     vNext := NextMonitor(OnWhichMonitor(vItem));
+     SetWindowPos(vItem.Handle, 0, Screen.Monitors[vNext].Left{ - vItem.Rect.Width div 2}, vItem.Rect.Top, vItem.Rect.Width, vItem.Rect.Height,
       SWP_NOZORDER + SWP_NOACTIVATE);
    end;
 
