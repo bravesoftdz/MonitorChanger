@@ -19,14 +19,17 @@ TMonitorChanger = class
 private
   FScreen: TScreen;
   FFilePath: string;
-  FIniFile: TIniFile;
-  function FormsFromProcess: TList<TFormInfo>;
+  FLastAction: TMonitorChangerAction;
+  FStartForms: TList<TFormInfo>;
+  FMovedForms: TList<TFormInfo>;
+  function FormsFromProcess: TArray<TFormInfo>;
   function GetScreenWidth: Integer;
   function FormsToJsonArray(const AName: string; const AForms: TList<TFormInfo>): string;
   function JsonArrayToForms(const AJsonArray: TJSONArray): TList<TFormInfo>;
   function FormByHandle(const AList: TList<TFormInfo>; const AHandle: Integer; out AFormInfo: TFormInfo): Boolean;
   function OnWhichMonitor(const AFormInfo: TFormInfo): Integer;
   function NextMonitor(const AMonitorIndex: Integer): Integer;
+  procedure FillListByArray(const AList: TList<TFormInfo>; const AArray: TArray<TFormInfo>);
 protected
   property ScreenWidth: Integer read GetScreenWidth;
 public
@@ -47,11 +50,15 @@ uses
 constructor TMonitorChanger.Create(AScreen: TScreen);
 begin
   FScreen := AScreen;
+  FLastAction := Initialize;
+  FStartForms := TList<TFormInfo>.Create;
+  FMovedForms := TList<TFormInfo>.Create;
 end;
 
 destructor TMonitorChanger.Destroy;
 begin
-  FIniFile.Free;
+  FStartForms.Free;
+  FMovedForms.Free;
 end;
 
 function TMonitorChanger.FormsToJsonArray(const AName: string; const AForms: TList<TFormInfo>): string;
@@ -128,15 +135,23 @@ function TMonitorChanger.Logic: TMonitorChangerAction;
 var
   vAction: string;
 begin
-  FFilePath := 'c:\Tmp\ScreenChanger.ini';
+  if FLastAction = TMonitorChangerAction.PlaceForms then
+  begin
+    ReturnForms;
+    FLastAction := TMonitorChangerAction.PlaceForms;
+    Exit;
+  end;
+
+  if (FLastAction = TMonitorChangerAction.ReturnForms) or (FLastAction = TMonitorChangerAction.Initialize) then
+  begin
+    PlaceForms;
+    FLastAction := TMonitorChangerAction.ReturnForms;
+  end;
+ { FFilePath :=  GetEnvironmentVariable('TEMP') + 'ScreenChanger.txt';
   FIniFile := TIniFile.Create(FFilePath);
 
-  if not FIniFile.SectionExists('Settings') then
-  begin
-    FIniFile.WriteString('Settings', 'Action', 'Initialize');
-
+  if CreateIniFile then
     Exit(TMonitorChangerAction.Initialize);
-  end;
 
   vAction := FIniFile.ReadString('Settings', 'Action', 'Initialize');
 
@@ -148,10 +163,17 @@ begin
 
   if (vAction = 'PlaceForms')  then
   begin
-    ReturnForms;
+
+    try
+      ReturnForms;
+    except
+//      CreateIniFileHard;
+//      Exit(TMonitorChangerAction.Initialize);
+    end;
+
     Exit(TMonitorChangerAction.ReturnForms);
   end;
-
+     }
 end;
 
 function TMonitorChanger.NextMonitor(const AMonitorIndex: Integer): Integer;
@@ -178,25 +200,35 @@ end;
 procedure TMonitorChanger.PlaceForms;
 var
   vItem: TFormInfo;
-  vStartForms: TList<TFormInfo>;
-  vMovedForms: TList<TFormInfo>;
+
   vWidth: Integer;
   vS: string;
-  vNext: Integer;
+  vNext, i: Integer;
+  vForms: TArray<TFormInfo>;
 begin
    vWidth := ScreenWidth;
-   vStartForms := FormsFromProcess;
-   for vItem in vStartForms do
+
+   vForms := FormsFromProcess;
+   FillListByArray(FStartForms, vForms);
+
+   for vItem in FStartForms do
    begin
      vNext := NextMonitor(OnWhichMonitor(vItem));
      SetWindowPos(vItem.Handle, 0, Screen.Monitors[vNext].Left{ - vItem.Rect.Width div 2}, vItem.Rect.Top, vItem.Rect.Width, vItem.Rect.Height,
       SWP_NOZORDER + SWP_NOACTIVATE);
    end;
 
-   vMovedForms := FormsFromProcess;
-   FIniFile.WriteString('Settings', 'Action', 'PlaceForms');
-   vS := '{' + FormsToJsonArray('StartForms',vStartForms) + ',' + FormsToJsonArray('MovedForms',vMovedForms) + '}';
-   FIniFile.WriteString('Settings', 'Json', vS);
+   vForms := FormsFromProcess;
+   FillListByArray(FMovedForms, vForms);
+end;
+
+procedure TMonitorChanger.FillListByArray(const AList: TList<TFormInfo>; const AArray: TArray<TFormInfo>);
+var
+  i: Integer;
+begin
+  AList.Clear;
+   for i := 0 to High(AArray) do
+     AList.Add(AArray[i]);
 end;
 
 function TMonitorChanger.FormByHandle(const AList: TList<TFormInfo>;
@@ -214,14 +246,15 @@ begin
   Result := False;
 end;
 
-function TMonitorChanger.FormsFromProcess: TList<TFormInfo>;
+function TMonitorChanger.FormsFromProcess: TArray<TFormInfo>;
 var
   buff: array [0..127] of char;
   vHandle: HWND;
   vFormInfo: TFormInfo;
+  vRes: TArray<TFormInfo>;
+  vN: Integer;
 begin
-  Result := TList<TFormInfo>.Create;
-  Result.Clear;
+  vN := 0;
   vHandle := GetWindow(Application.Handle, gw_hwndfirst);
   While vHandle <> 0 do
   begin // Не показываем:
@@ -230,14 +263,21 @@ begin
       and (GetWindow(vHandle, gw_owner) = 0) // Дочерние окна
       and (GetWindowText(vHandle, buff, SizeOf(buff)) <> 0) then
     begin
+      if vN > 1000 then Continue;
+      
       GetWindowText(vHandle, buff, SizeOf(buff));
       vFormInfo.Name := StrPas(buff);
       vFormInfo.Handle := vHandle;
       GetWindowRect(vHandle, vFormInfo.Rect);
-      Result.Add(vFormInfo);
+      SetLength(vRes, vN + 1);
+      vRes[vN] := vFormInfo;
+      vN := vN + 1;
     end;
-     vHandle := GetWindow(vHandle, gw_hwndnext);
+    vHandle := GetWindow(vHandle, gw_hwndnext);
   end;
+
+//  SetLength(vRes, vN);
+  Result := vRes;
 end;
 
 procedure TMonitorChanger.ReturnForms;
@@ -245,30 +285,21 @@ var
   vJson: TJSONObject;
   vArr: TJSONArray;
   vS: string;
-  vStartForms, vMovedForms, vCurForms: TList<TFormInfo>;
+//  vStartForms, vMovedForms: TList<TFormInfo>;
   i: Integer;
   vFormInfo, vStartFormInfo: TFormInfo;
   vWidth: Integer;
+  vCurForms: TArray<TFormInfo>;
 begin
-  if not FIniFile.SectionExists('Settings') then
-    Exit;
-
-  if not FIniFile.ValueExists('Settings', 'Json') then
-    Exit;
-
-  vS := FIniFile.ReadString('Settings', 'Json', '{}');
-  vJson := TJSONObject.ParseJSONValue(vS) as TJSONObject;
-  vStartForms := JsonArrayToForms(vJson.GetValue('StartForms') as TJSONArray);
-  vMovedForms := JsonArrayToForms(vJson.GetValue('MovedForms') as TJSONArray);
   vCurForms := FormsFromProcess;
 
 //  vN := Math.Min(vMovedForms.Count, vCurForms.Count);
    vWidth := ScreenWidth;
-  for i := 0 to vCurForms.Count - 1do
+  for i := 0 to Length(vCurForms) - 1 do
   begin
-    if FormByHandle(vMovedForms, vCurForms[i].Handle, vFormInfo) then
+    if FormByHandle(FMovedForms, vCurForms[i].Handle, vFormInfo) then
       if vFormInfo.Rect = vCurForms[i].Rect then
-        if FormByHandle(vStartForms, vCurForms[i].Handle, vStartFormInfo) then
+        if FormByHandle(FStartForms, vCurForms[i].Handle, vStartFormInfo) then
         begin
           SetWindowPos(vCurForms[i].Handle, 0,
             vStartFormInfo.Rect.Left, vStartFormInfo.Rect.Top,
@@ -276,7 +307,7 @@ begin
         end;
   end;
 
-  FIniFile.WriteString('Settings', 'Action', 'ReturnForms');
+
 end;
 
 end.

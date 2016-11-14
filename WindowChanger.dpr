@@ -3,7 +3,8 @@ program WindowChanger;
 uses
   Vcl.Forms,
   uMain in 'uMain.pas' {MainForm},
-  uMonitorChanger in 'uMonitorChanger.pas';
+  uMonitorChanger in 'uMonitorChanger.pas',
+  uKeyHook in 'uKeyHook.pas';
 
 {$R *.res}
 
